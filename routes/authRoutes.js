@@ -54,22 +54,18 @@ router.post("/login", async (req, res) => {
 
     const { accessToken, refreshToken } = generateToken(user._id);
 
-    const isProd = process.env.NODE_ENV === "production";
-
-    // COOKIE SETTINGS THAT WORK LOCALLY + PRODUCTION
-    const cookieOptions = {
-      httpOnly: true,
-      secure: isProd,               // only https in production
-      sameSite: isProd ? "None" : "Lax",
-    };
-
+    // ALWAYS use secure + sameSite None for cross-domain cookies
     res.cookie("accessToken", accessToken, {
-      ...cookieOptions,
+      httpOnly: true,
+      secure: true,
+      sameSite: "None",
       maxAge: 15 * 60 * 1000,
     });
 
     res.cookie("refreshToken", refreshToken, {
-      ...cookieOptions,
+      httpOnly: true,
+      secure: true,
+      sameSite: "None",
       maxAge: 7 * 24 * 60 * 60 * 1000,
     });
 
@@ -94,12 +90,10 @@ router.post("/refresh", async (req, res) => {
       { expiresIn: "15m" }
     );
 
-    const isProd = process.env.NODE_ENV === "production";
-
     res.cookie("accessToken", newAccessToken, {
       httpOnly: true,
-      secure: isProd,
-      sameSite: isProd ? "None" : "Lax",
+      secure: true,
+      sameSite: "None",
       maxAge: 15 * 60 * 1000,
     });
 
@@ -112,18 +106,8 @@ router.post("/refresh", async (req, res) => {
 // LOGOUT
 router.post("/logout", auth, async (req, res) => {
   try {
-    const isProd = process.env.NODE_ENV === "production";
-
-    res.clearCookie("accessToken", {
-      httpOnly: true,
-      secure: isProd,
-      sameSite: isProd ? "None" : "Lax",
-    });
-    res.clearCookie("refreshToken", {
-      httpOnly: true,
-      secure: isProd,
-      sameSite: isProd ? "None" : "Lax",
-    });
+    res.clearCookie("accessToken", { sameSite: "None", secure: true });
+    res.clearCookie("refreshToken", { sameSite: "None", secure: true });
 
     res.json({ message: "Logged out successfully" });
   } catch (error) {
