@@ -179,4 +179,43 @@ router.delete("/api/events/:id", auth, async (req, res) => {
   }
 });
 
+// ======================================================
+// GET ALL EVENTS RELATED TO LOGGED-IN USER (My Events)
+// ======================================================
+router.get("/api/myevents", auth, async (req, res) => {
+  try {
+    const userId = req.user.id;
+
+    // 1️⃣ Find all groups where the user is a member or owner
+    const groups = await Group.find({
+      $or: [
+        { owner: userId },
+        { "members.user": userId }
+      ]
+    }).select("_id");
+
+    const groupIds = groups.map(g => g._id);
+
+    // 2️⃣ Fetch all events in those groups OR created by user
+    const events = await Event.find({
+      $or: [
+        { group: { $in: groupIds } },
+        { creator: userId }
+      ]
+    })
+      .populate("creator", "name email")
+      .populate("group", "name")
+      .sort({ createdAt: -1 });
+
+    res.json({ events });
+  } catch (err) {
+    console.error("MyEvents Error:", err);
+    res.status(500).json({
+      message: "Server error",
+      error: err.message
+    });
+  }
+});
+
+
 module.exports = router;
