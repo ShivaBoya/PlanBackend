@@ -1,29 +1,26 @@
+// models/Message.js
 const mongoose = require("mongoose");
+const { Schema } = mongoose;
 
-const messageSchema = new mongoose.Schema(
-  {
-    event: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "Event",
-      required: true,
-    },
+const ReactionSchema = new Schema({
+  user: { type: Schema.Types.ObjectId, ref: "User" },
+  emoji: { type: String },
+}, { _id: false });
 
-    sender: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "User",
-      required: true,
-    },
+const AttachmentSchema = new Schema({
+  url: String,
+  type: { type: String }, // 'image'|'file'|'voice'
+  filename: String,
+  size: Number,
+}, { _id: false });
 
-    text: { type: String, required: true },
+const MessageSchema = new Schema({
+  event: { type: Schema.Types.ObjectId, ref: "Event", required: true },
+  sender: { type: Schema.Types.ObjectId, ref: "User", required: true },
+  text: { type: String, default: "" },
+  attachments: [AttachmentSchema],
+  reactions: [ReactionSchema],
+  mentions: [{ type: Schema.Types.ObjectId, ref: "User" }],
+}, { timestamps: true });
 
-    reactions: [
-      {
-        user: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
-        emoji: String,
-      }
-    ],
-  },
-  { timestamps: true }
-);
-
-module.exports = mongoose.model("Message", messageSchema);
+module.exports = mongoose.model("Message", MessageSchema);

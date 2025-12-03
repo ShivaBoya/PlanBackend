@@ -1,9 +1,9 @@
-
 const express = require("express");
 const dotenv = require("dotenv");
 const cors = require("cors");
 const cookieParser = require("cookie-parser");
 const http = require("http");
+const path = require("path");
 const { Server } = require("socket.io");
 const connectDB = require("./config/db");
 
@@ -20,24 +20,28 @@ const rsvpRoutes = require("./routes/rsvpRoutes");
 const suggestionRoutes = require("./routes/suggestionRoutes");
 const botRoutes = require("./routes/botRoutes");
 const messageRoutes = require("./routes/messageRoutes");
-
+const uploadRoutes = require("./routes/upload.routes"); // 🆕 File Upload Route
+const presenceRoutes = require("./routes/presence.routes"); // 🆕 Online Members API
 
 dotenv.config();
 connectDB();
 
-
 const app = express();
 const server = http.createServer(app);
 
-
+// =======================================
+// ALLOWED FRONTEND ORIGINS
+// =======================================
 const allowedOrigins = [
   "http://localhost:5173",
-  process.env.CLIENT_URL, // Production frontend
+  process.env.CLIENT_URL,
 ].filter(Boolean);
 
 console.log("🌍 Allowed Origins:", allowedOrigins);
 
-
+// =======================================
+// SOCKET.IO INITIALIZE
+// =======================================
 const io = new Server(server, {
   cors: {
     origin: allowedOrigins,
@@ -45,13 +49,16 @@ const io = new Server(server, {
   },
 });
 
-// Attach io to requests for REST fallback
-app.use((req, res, next) => {
-  req.io = io;
-  next();
-});
+// Make socket accessible everywhere
+app.locals.io = io;
 
+// Track online users { userId: Set(socketIds) }
+const onlineUsers = {};
+io.onlineUsers = onlineUsers;
 
+// =======================================
+// MIDDLEWARE
+// =======================================
 app.use(express.json());
 app.use(cookieParser());
 
@@ -64,7 +71,18 @@ app.use(
   })
 );
 
+// Serve uploads (local mode)
+app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
+// Attach io to each request
+app.use((req, res, next) => {
+  req.io = io;
+  next();
+});
+
+// =======================================
+// ROUTES
+// =======================================
 app.use("/", authRoutes);
 app.use("/", userRoutes);
 app.use("/", groupRoutes);
@@ -74,13 +92,19 @@ app.use("/", rsvpRoutes);
 app.use("/", suggestionRoutes);
 app.use("/", botRoutes);
 app.use("/", messageRoutes);
+app.use("/", uploadRoutes);     // 🆕 File uploads
+app.use("/", presenceRoutes);   // 🆕 Online members tracking
 
-
+// =======================================
+// HEALTH CHECK
+// =======================================
 app.get("/", (req, res) => {
   res.send("PlanPal Backend Running 🚀");
 });
 
-
+// =======================================
+// ERROR HANDLER
+// =======================================
 app.use((err, req, res, next) => {
   console.error("🔥 Error:", err.message);
   res.status(err.status || 500).json({
@@ -88,89 +112,122 @@ app.use((err, req, res, next) => {
   });
 });
 
-
+// =======================================
+// SOCKET.IO EVENTS
+// =======================================
 io.on("connection", (socket) => {
   console.log("⚡ Client Connected:", socket.id);
 
+  // -----------------------------------
+  // 1. AUTH (map socket → userId)
+  // -----------------------------------
+  socket.on("auth:user", ({ userId }) => {
+    socket.userId = userId;
 
+    if (!onlineUsers[userId]) {
+      onlineUsers[userId] = new Set();
+    }
+    onlineUsers[userId].add(socket.id);
+
+    console.log("🟢 User Online:", userId);
+  });
+
+  // -----------------------------------
+  // 2. JOIN EVENT ROOM
+  // -----------------------------------
   socket.on("join:event", (eventId) => {
-    console.log(`📥 User joined event room: ${eventId}`);
+    console.log(`📥 User joined room ${eventId}`);
     socket.join(eventId);
   });
 
-
-
+  // -----------------------------------
+  // 3. REALTIME CREATE MESSAGE
+  // -----------------------------------
   socket.on("message:create", async (data) => {
     try {
-      // Expected data: { eventId, senderId, text }
-      if (!data.text || !data.eventId || !data.senderId) return;
+      const { eventId, senderId, text, attachments } = data;
+
+      if (!eventId || !senderId || (!text && !attachments))
+        return;
 
       const message = await Message.create({
-        event: data.eventId,
-        sender: data.senderId,
-        text: data.text,
+        event: eventId,
+        sender: senderId,
+        text: text || "",
+        attachments: attachments || [],
       });
 
-      const populated = await Message.findById(message._id).populate(
-        "sender",
-        "name email"
-      );
+      const populated = await Message.findById(message._id)
+        .populate("sender", "name email");
 
-      io.to(data.eventId).emit("message:create", populated);
+      io.to(eventId).emit("message:create", populated);
     } catch (err) {
-      console.error("❌ Message create error:", err);
+      console.error("❌ Message Create Error:", err);
     }
   });
 
-
+  // -----------------------------------
+  // 4. MESSAGE REACTIONS
+  // -----------------------------------
   socket.on("message:reaction", async (data) => {
     try {
-      // Expected: { messageId, emoji, userId }
-      const message = await Message.findById(data.messageId);
+      const { messageId, emoji, userId } = data;
+
+      const message = await Message.findById(messageId);
       if (!message) return;
 
-      // Remove previous reaction by user
+      // Remove old reactions from same user
       message.reactions = message.reactions.filter(
-        (r) => r.user.toString() !== data.userId
+        (r) => r.user.toString() !== userId
       );
 
-      // Add new reaction
-      message.reactions.push({
-        user: data.userId,
-        emoji: data.emoji,
-      });
-
+      message.reactions.push({ user: userId, emoji });
       await message.save();
 
-      const populated = await Message.findById(message._id)
+      const full = await Message.findById(messageId)
         .populate("sender", "name email")
         .populate("reactions.user", "name email");
 
-      io.to(message.event.toString()).emit("message:reaction", populated);
+      io.to(message.event.toString()).emit("message:reaction", full);
     } catch (err) {
-      console.error("❌ Reaction error:", err);
+      console.error("❌ Reaction Error:", err);
     }
   });
 
-
+  // -----------------------------------
+  // 5. TYPING INDICATOR
+  // -----------------------------------
   socket.on("typing", (data) => {
-    // Expected: { eventId, userName }
     socket.to(data.eventId).emit("typing", data);
   });
 
-
+  // -----------------------------------
+  // 6. POLL UPDATES
+  // -----------------------------------
   socket.on("poll:update", (data) => {
-    // Expected: { eventId, pollId, poll }
     io.to(data.eventId).emit("poll:update", data);
   });
 
-
+  // -----------------------------------
+  // 7. DISCONNECT
+  // -----------------------------------
   socket.on("disconnect", () => {
-    console.log("❌ Client disconnected:", socket.id);
+    console.log("❌ User disconnected:", socket.id);
+
+    if (socket.userId && onlineUsers[socket.userId]) {
+      onlineUsers[socket.userId].delete(socket.id);
+
+      if (onlineUsers[socket.userId].size === 0) {
+        delete onlineUsers[socket.userId];
+        console.log("🔴 User Offline:", socket.userId);
+      }
+    }
   });
 });
 
-
+// =======================================
+// START SERVER
+// =======================================
 const PORT = process.env.PORT || 5000;
 
 server.listen(PORT, () => {
