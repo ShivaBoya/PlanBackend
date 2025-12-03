@@ -54,7 +54,6 @@ router.post("/login", async (req, res) => {
 
     const { accessToken, refreshToken } = generateToken(user._id);
 
-    // ALWAYS use secure + sameSite None for cross-domain cookies
     res.cookie("accessToken", accessToken, {
       httpOnly: true,
       secure: true,
@@ -124,8 +123,25 @@ router.get("/api/me", auth, async (req, res) => {
       return res.status(404).json({ message: "User not found" });
     }
 
-    res.json({ user });  // <--- FIXED (Frontend expects { user: {} })
+    res.json({ user }); 
   } catch (error) {
     res.status(500).json({ message: "Server error", error: error.message });
   }
 });
+
+// ============================================
+// ✅ GET ALL CONTACTS (All Users Except You)
+// GET /api/contacts
+// ============================================
+router.get("/api/contacts", auth, async (req, res) => {
+  try {
+    const users = await User.find({ _id: { $ne: req.user.id } })
+      .select("name email");
+
+    res.json({ contacts: users });
+  } catch (error) {
+    res.status(500).json({ message: "Server error", error: error.message });
+  }
+});
+
+module.exports = router;

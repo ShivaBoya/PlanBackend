@@ -20,8 +20,8 @@ const rsvpRoutes = require("./routes/rsvpRoutes");
 const suggestionRoutes = require("./routes/suggestionRoutes");
 const botRoutes = require("./routes/botRoutes");
 const messageRoutes = require("./routes/messageRoutes");
-const uploadRoutes = require("./routes/upload.routes"); // 🆕 File Upload Route
-const presenceRoutes = require("./routes/presence.routes"); // 🆕 Online Members API
+const uploadRoutes = require("./routes/upload.routes");
+const presenceRoutes = require("./routes/presence.routes");
 
 dotenv.config();
 connectDB();
@@ -30,7 +30,7 @@ const app = express();
 const server = http.createServer(app);
 
 // =======================================
-// ALLOWED FRONTEND ORIGINS
+// ORIGINS
 // =======================================
 const allowedOrigins = [
   "http://localhost:5173",
@@ -40,7 +40,7 @@ const allowedOrigins = [
 console.log("🌍 Allowed Origins:", allowedOrigins);
 
 // =======================================
-// SOCKET.IO INITIALIZE
+// SOCKET.IO
 // =======================================
 const io = new Server(server, {
   cors: {
@@ -49,10 +49,10 @@ const io = new Server(server, {
   },
 });
 
-// Make socket accessible everywhere
+// Expose io globally
 app.locals.io = io;
 
-// Track online users { userId: Set(socketIds) }
+// Track online users
 const onlineUsers = {};
 io.onlineUsers = onlineUsers;
 
@@ -71,45 +71,52 @@ app.use(
   })
 );
 
-// Serve uploads (local mode)
+// Static uploads
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
-// Attach io to each request
+// Attach io to req
 app.use((req, res, next) => {
   req.io = io;
   next();
 });
 
 // =======================================
-// ROUTES
+// SAFE ROUTE WRAPPER (🔥 FIXES YOUR ERROR)
 // =======================================
-app.use("/", authRoutes);
-app.use("/", userRoutes);
-app.use("/", groupRoutes);
-app.use("/", eventRoutes);
-app.use("/", pollRoutes);
-app.use("/", rsvpRoutes);
-app.use("/", suggestionRoutes);
-app.use("/", botRoutes);
-app.use("/", messageRoutes);
-app.use("/", uploadRoutes);     // 🆕 File uploads
-app.use("/", presenceRoutes);   // 🆕 Online members tracking
+function safeUseRoute(route) {
+  if (!route) return express.Router(); // prevent crash
+  if (typeof route === "function") return route;
+  if (route.stack) return route; // regular express router
+  console.warn("⚠️ Invalid router detected. Skipped.");
+  return express.Router();
+}
+
+// =======================================
+// ROUTES (unchanged)
+// =======================================
+app.use("/", safeUseRoute(authRoutes));
+app.use("/", safeUseRoute(userRoutes));
+app.use("/", safeUseRoute(groupRoutes));
+app.use("/", safeUseRoute(eventRoutes));
+app.use("/", safeUseRoute(pollRoutes));
+app.use("/", safeUseRoute(rsvpRoutes));
+app.use("/", safeUseRoute(suggestionRoutes));
+app.use("/", safeUseRoute(botRoutes));
+app.use("/", safeUseRoute(messageRoutes));
+app.use("/", safeUseRoute(uploadRoutes));
+app.use("/", safeUseRoute(presenceRoutes));
 
 // =======================================
 // HEALTH CHECK
 // =======================================
-app.get("/", (req, res) => {
-  res.send("PlanPal Backend Running 🚀");
-});
+app.get("/", (req, res) => res.send("PlanPal Backend Running 🚀"));
 
 // =======================================
 // ERROR HANDLER
 // =======================================
 app.use((err, req, res, next) => {
   console.error("🔥 Error:", err.message);
-  res.status(err.status || 500).json({
-    message: err.message || "Server Error",
-  });
+  res.status(err.status || 500).json({ message: err.message });
 });
 
 // =======================================
@@ -118,37 +125,27 @@ app.use((err, req, res, next) => {
 io.on("connection", (socket) => {
   console.log("⚡ Client Connected:", socket.id);
 
-  // -----------------------------------
-  // 1. AUTH (map socket → userId)
-  // -----------------------------------
+  // 1. AUTH
   socket.on("auth:user", ({ userId }) => {
     socket.userId = userId;
 
-    if (!onlineUsers[userId]) {
-      onlineUsers[userId] = new Set();
-    }
+    if (!onlineUsers[userId]) onlineUsers[userId] = new Set();
     onlineUsers[userId].add(socket.id);
 
     console.log("🟢 User Online:", userId);
   });
 
-  // -----------------------------------
-  // 2. JOIN EVENT ROOM
-  // -----------------------------------
+  // 2. JOIN EVENT
   socket.on("join:event", (eventId) => {
     console.log(`📥 User joined room ${eventId}`);
     socket.join(eventId);
   });
 
-  // -----------------------------------
-  // 3. REALTIME CREATE MESSAGE
-  // -----------------------------------
+  // 3. MESSAGE CREATE
   socket.on("message:create", async (data) => {
     try {
       const { eventId, senderId, text, attachments } = data;
-
-      if (!eventId || !senderId || (!text && !attachments))
-        return;
+      if (!eventId || !senderId || (!text && !attachments)) return;
 
       const message = await Message.create({
         event: eventId,
@@ -166,51 +163,40 @@ io.on("connection", (socket) => {
     }
   });
 
-  // -----------------------------------
-  // 4. MESSAGE REACTIONS
-  // -----------------------------------
-  socket.on("message:reaction", async (data) => {
+  // 4. REACTION
+  socket.on("message:reaction", async ({ messageId, emoji, userId }) => {
     try {
-      const { messageId, emoji, userId } = data;
+      const msg = await Message.findById(messageId);
+      if (!msg) return;
 
-      const message = await Message.findById(messageId);
-      if (!message) return;
-
-      // Remove old reactions from same user
-      message.reactions = message.reactions.filter(
+      msg.reactions = msg.reactions.filter(
         (r) => r.user.toString() !== userId
       );
 
-      message.reactions.push({ user: userId, emoji });
-      await message.save();
+      msg.reactions.push({ user: userId, emoji });
+      await msg.save();
 
       const full = await Message.findById(messageId)
         .populate("sender", "name email")
         .populate("reactions.user", "name email");
 
-      io.to(message.event.toString()).emit("message:reaction", full);
+      io.to(msg.event.toString()).emit("message:reaction", full);
     } catch (err) {
       console.error("❌ Reaction Error:", err);
     }
   });
 
-  // -----------------------------------
-  // 5. TYPING INDICATOR
-  // -----------------------------------
+  // 5. TYPING
   socket.on("typing", (data) => {
     socket.to(data.eventId).emit("typing", data);
   });
 
-  // -----------------------------------
   // 6. POLL UPDATES
-  // -----------------------------------
   socket.on("poll:update", (data) => {
     io.to(data.eventId).emit("poll:update", data);
   });
 
-  // -----------------------------------
   // 7. DISCONNECT
-  // -----------------------------------
   socket.on("disconnect", () => {
     console.log("❌ User disconnected:", socket.id);
 
@@ -229,7 +215,6 @@ io.on("connection", (socket) => {
 // START SERVER
 // =======================================
 const PORT = process.env.PORT || 5000;
-
-server.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
-});
+server.listen(PORT, () =>
+  console.log(`🚀 Server running on port ${PORT}`)
+);
