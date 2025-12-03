@@ -179,14 +179,11 @@ router.delete("/api/events/:id", auth, async (req, res) => {
   }
 });
 
-// ======================================================
-// GET ALL EVENTS RELATED TO LOGGED-IN USER (My Events)
-// ======================================================
+// GET MY EVENTS
 router.get("/api/myevents", auth, async (req, res) => {
   try {
     const userId = req.user.id;
 
-    // 1️⃣ Find all groups where the user is a member or owner
     const groups = await Group.find({
       $or: [
         { owner: userId },
@@ -194,28 +191,21 @@ router.get("/api/myevents", auth, async (req, res) => {
       ]
     }).select("_id");
 
-    const groupIds = groups.map(g => g._id);
+    const groupIds = groups.map((g) => g._id);
 
-    // 2️⃣ Fetch all events in those groups OR created by user
-    const events = await Event.find({
-      $or: [
-        { group: { $in: groupIds } },
-        { creator: userId }
-      ]
-    })
-      .populate("creator", "name email")
+    const events = await Event.find({ group: { $in: groupIds } })
       .populate("group", "name")
-      .sort({ createdAt: -1 });
+      .sort({ date: 1 });
 
-    res.json({ events });
+    res.json(events);         // 👈 RETURN ARRAY ONLY
   } catch (err) {
-    console.error("MyEvents Error:", err);
     res.status(500).json({
-      message: "Server error",
-      error: err.message
+      message: "Cannot fetch events",
+      error: err.message,
     });
   }
 });
+
 
 
 module.exports = router;
