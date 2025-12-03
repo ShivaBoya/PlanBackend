@@ -116,13 +116,16 @@ router.post("/logout", auth, async (req, res) => {
 });
 
 // GET CURRENT USER
-router.get("/me", auth, async (req, res) => {
+router.get("/api/me", auth, async (req, res) => {
   try {
     const user = await User.findById(req.user.id).select("-password");
-    res.json(user);
+
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    res.json({ user });  // <--- FIXED (Frontend expects { user: {} })
   } catch (error) {
     res.status(500).json({ message: "Server error", error: error.message });
   }
 });
-
-module.exports = router;
