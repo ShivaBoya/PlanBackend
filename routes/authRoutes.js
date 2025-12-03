@@ -129,4 +129,4 @@ router.get("/api/me", auth, async (req, res) => {
   }
 });
 
-le.exports = router;
+module.exports = router;
