@@ -3,6 +3,7 @@ const router = express.Router();
 const auth = require("../middleware/authMiddleware");
 const Group = require("../models/Group");
 const User = require("../models/User");
+const crypto = require("crypto");
 
 // ===========================
 // GET ALL GROUPS (owner or member)
@@ -35,6 +36,7 @@ router.post("/api/groups", auth, async (req, res) => {
       name,
       description,
       owner: req.user.id,
+      inviteCode: crypto.randomBytes(6).toString("hex"), // auto generate invite
       members: [{ user: req.user.id, role: "admin" }]
     });
 
@@ -45,7 +47,7 @@ router.post("/api/groups", auth, async (req, res) => {
 });
 
 // ===========================
-// GET SINGLE GROUP (member or owner)
+// GET SINGLE GROUP (owner or member)
 // ===========================
 router.get("/api/groups/:id", auth, async (req, res) => {
   try {
@@ -70,7 +72,7 @@ router.get("/api/groups/:id", auth, async (req, res) => {
 // ===========================
 // UPDATE GROUP (owner only)
 // ===========================
-router.put("/api/groups/:id", auth, async (req, res) => {
+router.patch("/api/groups/:id", auth, async (req, res) => {
   try {
     const group = await Group.findOne({ _id: req.params.id, owner: req.user.id });
     if (!group) return res.status(403).json({ message: "Not authorized" });
@@ -99,6 +101,66 @@ router.delete("/api/groups/:id", auth, async (req, res) => {
     if (!group) return res.status(403).json({ message: "Not authorized" });
 
     res.json({ message: "Group deleted" });
+  } catch (err) {
+    res.status(500).json({ message: "Server error", error: err.message });
+  }
+});
+
+// ===========================
+// 🔥 SEND INVITE (owner only)
+// POST /api/groups/:id/invite
+// ===========================
+router.post("/api/groups/:id/invite", auth, async (req, res) => {
+  try {
+    const group = await Group.findOne({ _id: req.params.id, owner: req.user.id });
+
+    if (!group) return res.status(403).json({ message: "Not authorized" });
+
+    // If no inviteCode exists, generate one
+    if (!group.inviteCode) {
+      group.inviteCode = crypto.randomBytes(6).toString("hex");
+      await group.save();
+    }
+
+    const inviteLink = `${process.env.CLIENT_URL}/join/${group.inviteCode}`;
+
+    res.json({
+      message: "Invite generated",
+      inviteCode: group.inviteCode,
+      inviteLink
+    });
+
+  } catch (err) {
+    res.status(500).json({ message: "Server error", error: err.message });
+  }
+});
+
+// ===========================
+// 🔥 JOIN GROUP USING INVITE CODE
+// POST /api/groups/:id/join 
+// ===========================
+router.post("/api/groups/:id/join", auth, async (req, res) => {
+  try {
+    const { inviteCode } = req.body;
+
+    const group = await Group.findById(req.params.id);
+
+    if (!group) return res.status(404).json({ message: "Group not found" });
+
+    if (group.inviteCode !== inviteCode)
+      return res.status(400).json({ message: "Invalid invite code" });
+
+    const alreadyMember = group.members.some(
+      m => m.user.toString() === req.user.id
+    );
+
+    if (alreadyMember)
+      return res.status(400).json({ message: "Already a member" });
+
+    group.members.push({ user: req.user.id, role: "member" });
+    await group.save();
+
+    res.json({ message: "Joined successfully", group });
   } catch (err) {
     res.status(500).json({ message: "Server error", error: err.message });
   }
@@ -154,6 +216,8 @@ router.get("/api/groups/:id/members", auth, async (req, res) => {
   try {
     const group = await Group.findById(req.params.id)
       .populate("members.user", "name email");
+
+    if (!group) return res.status(404).json({ message: "Group not found" });
 
     const isOwner = group.owner.toString() === req.user.id;
     const isMember = group.members.some(m => m.user._id.toString() === req.user.id);
