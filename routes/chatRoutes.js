@@ -7,58 +7,60 @@ const User = require("../models/User");
 const router = express.Router();
 
 /* ======================================================
-   CREATE / GET CHAT BETWEEN TWO USERS
+   CREATE OR GET CHAT BETWEEN TWO USERS
 ====================================================== */
 router.post("/api/chat/start", auth, async (req, res) => {
   try {
-    const { otherUserId } = req.body;
+    const { userId } = req.body; // FIXED: frontend sends userId
+
+    if (!userId) return res.status(400).json({ message: "userId required" });
 
     let chat = await Chat.findOne({
-      users: { $all: [req.user.id, otherUserId] }
-    });
+      users: { $all: [req.user.id, userId] }
+    })
+      .populate("users", "name email avatar");
 
     if (!chat) {
       chat = await Chat.create({
-        users: [req.user.id, otherUserId]
+        users: [req.user.id, userId]
       });
+      chat = await Chat.findById(chat._id).populate("users", "name email avatar");
     }
 
-    res.json(chat);
+    res.json({ chat });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
 });
 
 /* ======================================================
-   GET ALL USER CHATS (Messenger Style)
+   GET ALL USER CHATS (Messenger / WhatsApp)
 ====================================================== */
 router.get("/api/chat/list", auth, async (req, res) => {
   try {
-    const chats = await Chat.find({
-      users: req.user.id
-    })
-      .populate("users", "name email")
+    const chats = await Chat.find({ users: req.user.id })
+      .populate("users", "name email avatar")
       .populate("lastMessage")
       .sort({ updatedAt: -1 });
 
-    res.json(chats);
+    res.json({ chats }); // FIXED: must be object
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
 });
 
 /* ======================================================
-   GET MESSAGES OF ONE CHAT
+   GET CHAT MESSAGES
 ====================================================== */
 router.get("/api/chat/:chatId/messages", auth, async (req, res) => {
   try {
     const messages = await DirectMessage.find({
       chatId: req.params.chatId
     })
-      .populate("sender", "name email")
+      .populate("sender", "name email avatar")
       .sort({ createdAt: 1 });
 
-    res.json(messages);
+    res.json({ messages }); // FIXED: must wrap in object
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
@@ -82,8 +84,9 @@ router.post("/api/chat/:chatId/message", auth, async (req, res) => {
     });
 
     const full = await DirectMessage.findById(msg._id)
-      .populate("sender", "name email");
+      .populate("sender", "name email avatar");
 
+    // FIXED: socket room name must match frontend "dm:join"
     req.io.to(req.params.chatId).emit("dm:message", full);
 
     res.json(full);
@@ -93,14 +96,14 @@ router.post("/api/chat/:chatId/message", auth, async (req, res) => {
 });
 
 /* ======================================================
-   GET ALL CONTACTS (🔥 WhatsApp CONTACTS)
+   GET ALL CONTACTS (WhatsApp Style)
 ====================================================== */
 router.get("/api/chat/contacts", auth, async (req, res) => {
   try {
     const users = await User.find({ _id: { $ne: req.user.id } })
-      .select("name email");
+      .select("name email avatar");
 
-    res.json(users);
+    res.json({ contacts: users }); // FIXED: wrap in object
   } catch (err) {
     res.status(500).json({ message: err.message });
   }

@@ -129,19 +129,4 @@ router.get("/api/me", auth, async (req, res) => {
   }
 });
 
-// ============================================
-// ✅ GET ALL CONTACTS (All Users Except You)
-// GET /api/contacts
-// ============================================
-router.get("/api/contacts", auth, async (req, res) => {
-  try {
-    const users = await User.find({ _id: { $ne: req.user.id } })
-      .select("name email");
-
-    res.json({ contacts: users });
-  } catch (error) {
-    res.status(500).json({ message: "Server error", error: error.message });
-  }
-});
-
-module.exports = router;
+le.exports = router;
