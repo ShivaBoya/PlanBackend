@@ -1,3 +1,4 @@
+// server.js
 const express = require("express");
 const dotenv = require("dotenv");
 const cors = require("cors");
@@ -9,6 +10,8 @@ const connectDB = require("./config/db");
 
 // Models
 const Message = require("./models/Message");
+const Chat = require("./models/Chat"); // NEW: chat model
+const DirectMessage = require("./models/DirectMessage"); // NEW: direct message model
 
 // Routes
 const authRoutes = require("./routes/authRoutes");
@@ -22,6 +25,7 @@ const botRoutes = require("./routes/botRoutes");
 const messageRoutes = require("./routes/messageRoutes");
 const uploadRoutes = require("./routes/upload.routes");
 const presenceRoutes = require("./routes/presence.routes");
+const chatRoutes = require("./routes/chatRoutes"); // NEW: DM chat routes
 
 dotenv.config();
 connectDB();
@@ -52,7 +56,7 @@ const io = new Server(server, {
 // Expose io globally
 app.locals.io = io;
 
-// Track online users
+// Track online users: { userId: Set(socketIds) }
 const onlineUsers = {};
 io.onlineUsers = onlineUsers;
 
@@ -71,28 +75,28 @@ app.use(
   })
 );
 
-// Static uploads
+// Static uploads (local serving)
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
-// Attach io to req
+// Attach io to req so routes can use req.io
 app.use((req, res, next) => {
   req.io = io;
   next();
 });
 
 // =======================================
-// SAFE ROUTE WRAPPER (🔥 FIXES YOUR ERROR)
+// SAFE ROUTE WRAPPER (prevents crash if a route export is invalid)
 // =======================================
 function safeUseRoute(route) {
-  if (!route) return express.Router(); // prevent crash
+  if (!route) return express.Router(); // prevent crash if route missing
   if (typeof route === "function") return route;
-  if (route.stack) return route; // regular express router
+  if (route.stack) return route; // standard express router
   console.warn("⚠️ Invalid router detected. Skipped.");
   return express.Router();
 }
 
 // =======================================
-// ROUTES (unchanged)
+// ROUTES
 // =======================================
 app.use("/", safeUseRoute(authRoutes));
 app.use("/", safeUseRoute(userRoutes));
@@ -105,6 +109,7 @@ app.use("/", safeUseRoute(botRoutes));
 app.use("/", safeUseRoute(messageRoutes));
 app.use("/", safeUseRoute(uploadRoutes));
 app.use("/", safeUseRoute(presenceRoutes));
+app.use("/", safeUseRoute(chatRoutes)); // NEW: chatRoutes mounted
 
 // =======================================
 // HEALTH CHECK
@@ -116,7 +121,7 @@ app.get("/", (req, res) => res.send("PlanPal Backend Running 🚀"));
 // =======================================
 app.use((err, req, res, next) => {
   console.error("🔥 Error:", err.message);
-  res.status(err.status || 500).json({ message: err.message });
+  res.status(err.status || 500).json({ message: err.message || "Server Error" });
 });
 
 // =======================================
@@ -125,8 +130,12 @@ app.use((err, req, res, next) => {
 io.on("connection", (socket) => {
   console.log("⚡ Client Connected:", socket.id);
 
-  // 1. AUTH
+  // -------------------------
+  // 1) AUTH: map socket -> userId
+  // payload: { userId }
+  // -------------------------
   socket.on("auth:user", ({ userId }) => {
+    if (!userId) return;
     socket.userId = userId;
 
     if (!onlineUsers[userId]) onlineUsers[userId] = new Set();
@@ -135,13 +144,15 @@ io.on("connection", (socket) => {
     console.log("🟢 User Online:", userId);
   });
 
-  // 2. JOIN EVENT
+  // -------------------------
+  // 2) GROUP/EVENT CHAT (existing)
+  // -------------------------
   socket.on("join:event", (eventId) => {
-    console.log(`📥 User joined room ${eventId}`);
+    if (!eventId) return;
+    console.log(`📥 User joined event room ${eventId}`);
     socket.join(eventId);
   });
 
-  // 3. MESSAGE CREATE
   socket.on("message:create", async (data) => {
     try {
       const { eventId, senderId, text, attachments } = data;
@@ -154,25 +165,19 @@ io.on("connection", (socket) => {
         attachments: attachments || [],
       });
 
-      const populated = await Message.findById(message._id)
-        .populate("sender", "name email");
-
+      const populated = await Message.findById(message._id).populate("sender", "name email");
       io.to(eventId).emit("message:create", populated);
     } catch (err) {
       console.error("❌ Message Create Error:", err);
     }
   });
 
-  // 4. REACTION
   socket.on("message:reaction", async ({ messageId, emoji, userId }) => {
     try {
       const msg = await Message.findById(messageId);
       if (!msg) return;
 
-      msg.reactions = msg.reactions.filter(
-        (r) => r.user.toString() !== userId
-      );
-
+      msg.reactions = msg.reactions.filter((r) => r.user.toString() !== userId);
       msg.reactions.push({ user: userId, emoji });
       await msg.save();
 
@@ -186,19 +191,118 @@ io.on("connection", (socket) => {
     }
   });
 
-  // 5. TYPING
   socket.on("typing", (data) => {
+    if (!data || !data.eventId) return;
     socket.to(data.eventId).emit("typing", data);
   });
 
-  // 6. POLL UPDATES
   socket.on("poll:update", (data) => {
+    if (!data || !data.eventId) return;
     io.to(data.eventId).emit("poll:update", data);
   });
 
-  // 7. DISCONNECT
+  // -------------------------
+  // 3) DIRECT / PRIVATE MESSAGES (WhatsApp-style)
+  //    Rooms use chatId (ObjectId string) — created via API or auto-created
+  // -------------------------
+
+  // Join a DM room (chatId)
+  // payload: { chatId }
+  socket.on("dm:join", (chatId) => {
+    if (!chatId) return;
+    socket.join(chatId);
+    // Optionally: emit presence of join to the room
+    // socket.to(chatId).emit("dm:user:joined", { userId: socket.userId });
+    // console.log(`📥 Socket ${socket.id} joined dm room ${chatId}`);
+  });
+
+  // dm message (from client)
+  // payload: { chatId, senderId, text, attachments }
+  socket.on("dm:message", async (data) => {
+    try {
+      const { chatId, senderId, text, attachments } = data;
+      if (!chatId || !senderId || (!text && !attachments)) return;
+
+      // Create DirectMessage doc
+      const dm = await DirectMessage.create({
+        chatId,
+        sender: senderId,
+        text: text || "",
+        attachments: attachments || [],
+        status: "sent",
+      });
+
+      // Update Chat.lastMessage & updatedAt
+      await Chat.findByIdAndUpdate(chatId, { lastMessage: dm._id, updatedAt: new Date() });
+
+      // Populate before emitting
+      const populated = await DirectMessage.findById(dm._id).populate("sender", "name email");
+
+      // Emit to chat room
+      io.to(chatId).emit("dm:message", populated);
+
+      // Optionally notify individual sockets (if you want to send to specific user sockets)
+      // e.g., find other user(s) in chat and emit to their connected sockets
+      try {
+        const chat = await Chat.findById(chatId).populate("users", "_id");
+        if (chat && chat.users) {
+          chat.users.forEach((u) => {
+            const uid = u._id.toString();
+            if (onlineUsers[uid]) {
+              // emit a personal notification to each socket of user
+              onlineUsers[uid].forEach((sockId) => {
+                io.to(sockId).emit("dm:notify", { chatId, message: populated });
+              });
+            }
+          });
+        }
+      } catch (e) {
+        // non-critical
+      }
+    } catch (err) {
+      console.error("❌ DM create error:", err);
+    }
+  });
+
+  // dm seen (mark messages as seen in chat)
+  // payload: { chatId, userId, messageIds: [..] }
+  socket.on("dm:seen", async (data) => {
+    try {
+      const { chatId, userId, messageIds } = data;
+      if (!chatId || !userId) return;
+
+      // Update status for the listed messages (if provided), else update all unseen for the chat for the user
+      if (Array.isArray(messageIds) && messageIds.length > 0) {
+        await DirectMessage.updateMany(
+          { _id: { $in: messageIds }, status: { $ne: "seen" } },
+          { $set: { status: "seen" } }
+        );
+      } else {
+        await DirectMessage.updateMany(
+          { chatId, status: { $ne: "seen" } },
+          { $set: { status: "seen" } }
+        );
+      }
+
+      // Notify room that messages were seen
+      io.to(chatId).emit("dm:seen", { chatId, userId, messageIds: messageIds || [] });
+    } catch (err) {
+      console.error("❌ DM seen error:", err);
+    }
+  });
+
+  // dm typing indicator
+  // payload: { chatId, userId, userName }
+  socket.on("dm:typing", (data) => {
+    if (!data || !data.chatId) return;
+    socket.to(data.chatId).emit("dm:typing", data);
+  });
+
+  // -------------------------
+  // DISCONNECT
+  // -------------------------
   socket.on("disconnect", () => {
-    console.log("❌ User disconnected:", socket.id);
+    console.log("❌ Client disconnected:", socket.id);
 
     if (socket.userId && onlineUsers[socket.userId]) {
       onlineUsers[socket.userId].delete(socket.id);
@@ -215,6 +319,4 @@ io.on("connection", (socket) => {
 // START SERVER
 // =======================================
 const PORT = process.env.PORT || 5000;
-server.listen(PORT, () =>
-  console.log(`🚀 Server running on port ${PORT}`)
-);
+server.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
