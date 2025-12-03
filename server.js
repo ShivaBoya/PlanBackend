@@ -1,3 +1,4 @@
+
 const express = require("express");
 const dotenv = require("dotenv");
 const cors = require("cors");
@@ -5,6 +6,9 @@ const cookieParser = require("cookie-parser");
 const http = require("http");
 const { Server } = require("socket.io");
 const connectDB = require("./config/db");
+
+// Models
+const Message = require("./models/Message");
 
 // Routes
 const authRoutes = require("./routes/authRoutes");
@@ -16,27 +20,24 @@ const rsvpRoutes = require("./routes/rsvpRoutes");
 const suggestionRoutes = require("./routes/suggestionRoutes");
 const botRoutes = require("./routes/botRoutes");
 const messageRoutes = require("./routes/messageRoutes");
-const Message = require("./models/Message");
+
 
 dotenv.config();
 connectDB();
 
+
 const app = express();
 const server = http.createServer(app);
 
-// --------------------------------------
-// ✅ ALLOWED FRONTEND ORIGINS
-// --------------------------------------
+
 const allowedOrigins = [
   "http://localhost:5173",
-  process.env.CLIENT_URL,        // your deployed frontend (Vercel/Netlify)
+  process.env.CLIENT_URL, // Production frontend
 ].filter(Boolean);
 
 console.log("🌍 Allowed Origins:", allowedOrigins);
 
-// --------------------------------------
-// ✅ SOCKET.IO CORS FIX
-// --------------------------------------
+
 const io = new Server(server, {
   cors: {
     origin: allowedOrigins,
@@ -44,21 +45,16 @@ const io = new Server(server, {
   },
 });
 
-// Inject 'io' into all routes
+// Attach io to requests for REST fallback
 app.use((req, res, next) => {
   req.io = io;
   next();
 });
 
-// --------------------------------------
-// Middleware
-// --------------------------------------
+
 app.use(express.json());
 app.use(cookieParser());
 
-// --------------------------------------
-// ✅ FIXED CORS FOR JWT COOKIES
-// --------------------------------------
 app.use(
   cors({
     origin: allowedOrigins,
@@ -68,9 +64,7 @@ app.use(
   })
 );
 
-// --------------------------------------
-// Routes
-// --------------------------------------
+
 app.use("/", authRoutes);
 app.use("/", userRoutes);
 app.use("/", groupRoutes);
@@ -81,16 +75,12 @@ app.use("/", suggestionRoutes);
 app.use("/", botRoutes);
 app.use("/", messageRoutes);
 
-// --------------------------------------
-// Health check
-// --------------------------------------
+
 app.get("/", (req, res) => {
   res.send("PlanPal Backend Running 🚀");
 });
 
-// --------------------------------------
-// Error Handler
-// --------------------------------------
+
 app.use((err, req, res, next) => {
   console.error("🔥 Error:", err.message);
   res.status(err.status || 500).json({
@@ -98,57 +88,89 @@ app.use((err, req, res, next) => {
   });
 });
 
-// --------------------------------------
-// SOCKET.IO EVENTS
-// --------------------------------------
+
 io.on("connection", (socket) => {
   console.log("⚡ Client Connected:", socket.id);
 
+
   socket.on("join:event", (eventId) => {
+    console.log(`📥 User joined event room: ${eventId}`);
     socket.join(eventId);
   });
 
+
+
   socket.on("message:create", async (data) => {
-    const message = await Message.create({
-      event: data.eventId,
-      sender: data.senderId,
-      text: data.text,
-    });
-    io.to(data.eventId).emit("message:create", message);
+    try {
+      // Expected data: { eventId, senderId, text }
+      if (!data.text || !data.eventId || !data.senderId) return;
+
+      const message = await Message.create({
+        event: data.eventId,
+        sender: data.senderId,
+        text: data.text,
+      });
+
+      const populated = await Message.findById(message._id).populate(
+        "sender",
+        "name email"
+      );
+
+      io.to(data.eventId).emit("message:create", populated);
+    } catch (err) {
+      console.error("❌ Message create error:", err);
+    }
   });
+
 
   socket.on("message:reaction", async (data) => {
-    const message = await Message.findById(data.messageId);
-    if (!message) return;
+    try {
+      // Expected: { messageId, emoji, userId }
+      const message = await Message.findById(data.messageId);
+      if (!message) return;
 
-    const existing = message.reactions.find(
-      (r) => r.user.toString() === data.userId
-    );
+      // Remove previous reaction by user
+      message.reactions = message.reactions.filter(
+        (r) => r.user.toString() !== data.userId
+      );
 
-    if (existing) existing.emoji = data.emoji;
-    else message.reactions.push({ user: data.userId, emoji: data.emoji });
+      // Add new reaction
+      message.reactions.push({
+        user: data.userId,
+        emoji: data.emoji,
+      });
 
-    await message.save();
+      await message.save();
 
-    io.to(message.event.toString()).emit("message:reaction", message);
+      const populated = await Message.findById(message._id)
+        .populate("sender", "name email")
+        .populate("reactions.user", "name email");
+
+      io.to(message.event.toString()).emit("message:reaction", populated);
+    } catch (err) {
+      console.error("❌ Reaction error:", err);
+    }
   });
 
+
   socket.on("typing", (data) => {
+    // Expected: { eventId, userName }
     socket.to(data.eventId).emit("typing", data);
   });
 
+
   socket.on("poll:update", (data) => {
+    // Expected: { eventId, pollId, poll }
     io.to(data.eventId).emit("poll:update", data);
   });
+
 
   socket.on("disconnect", () => {
     console.log("❌ Client disconnected:", socket.id);
   });
 });
 
-// --------------------------------------
-// Start Server
-// --------------------------------------
+
 const PORT = process.env.PORT || 5000;
 
 server.listen(PORT, () => {
