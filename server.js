@@ -39,7 +39,9 @@ const server = http.createServer(app);
 const allowedOrigins = [
   "http://localhost:5173",
   "http://127.0.0.1:5173",
+  "https://out-my-plannigs.vercel.app",
   process.env.CLIENT_URL,
+  ...(process.env.CLIENT_URLS ? process.env.CLIENT_URLS.split(",") : []),
 ].filter(Boolean);
 
 console.log("🌍 Allowed Origins:", allowedOrigins);
