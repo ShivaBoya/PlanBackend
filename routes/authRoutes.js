@@ -57,8 +57,8 @@ router.post("/register", async (req, res) => {
       const token = generateToken(user._id);
       res.cookie("jwt", token, {
         httpOnly: true,
-        secure: process.env.NODE_ENV === "production",
-        sameSite: "lax",
+        secure: true, // Always true for cross-site
+        sameSite: "none", // Required for cross-site
         maxAge: 30 * 24 * 60 * 60 * 1000,
       });
 
@@ -93,8 +93,8 @@ router.post("/login", async (req, res) => {
 
       res.cookie("jwt", token, {
         httpOnly: true,
-        secure: process.env.NODE_ENV === "production",
-        sameSite: "lax", // Better for local dev than strict
+        secure: true, // Always true for cross-site
+        sameSite: "none", // Required for cross-site
         maxAge: 30 * 24 * 60 * 60 * 1000,
       });
 
