@@ -13,7 +13,7 @@ const isGroupMember = (group, userId) =>
 // ======================================================
 // CREATE EVENT
 // ======================================================
-router.post("/api/groups/:groupId/events", auth, async (req, res) => {
+router.post("/groups/:groupId/events", auth, async (req, res) => {
   try {
     const { title, description, date, time, location } = req.body;
 
@@ -49,7 +49,7 @@ router.post("/api/groups/:groupId/events", auth, async (req, res) => {
 // ======================================================
 // LIST EVENTS OF GROUP
 // ======================================================
-router.get("/api/groups/:groupId/events", auth, async (req, res) => {
+router.get("/groups/:groupId/events", auth, async (req, res) => {
   try {
     const group = await Group.findById(req.params.groupId);
     if (!group) {
@@ -73,7 +73,7 @@ router.get("/api/groups/:groupId/events", auth, async (req, res) => {
 // ======================================================
 // GET EVENT DETAILS
 // ======================================================
-router.get("/api/events/:id", auth, async (req, res) => {
+router.get("/events/:id", auth, async (req, res) => {
   try {
     const event = await Event.findById(req.params.id)
       .populate("group")
@@ -96,7 +96,7 @@ router.get("/api/events/:id", auth, async (req, res) => {
 // ======================================================
 // GET EVENT MEMBERS (🔥 REQUIRED FOR CHATBOX)
 // ======================================================
-router.get("/api/events/:eventId/members", auth, async (req, res) => {
+router.get("/events/:eventId/members", auth, async (req, res) => {
   try {
     const event = await Event.findById(req.params.eventId)
       .populate({
@@ -126,7 +126,7 @@ router.get("/api/events/:eventId/members", auth, async (req, res) => {
 // ======================================================
 // UPDATE EVENT
 // ======================================================
-router.put("/api/events/:id", auth, async (req, res) => {
+router.put("/events/:id", auth, async (req, res) => {
   try {
     const event = await Event.findById(req.params.id).populate("group");
 
@@ -156,7 +156,7 @@ router.put("/api/events/:id", auth, async (req, res) => {
 // ======================================================
 // DELETE EVENT
 // ======================================================
-router.delete("/api/events/:id", auth, async (req, res) => {
+router.delete("/events/:id", auth, async (req, res) => {
   try {
     const event = await Event.findById(req.params.id).populate("group");
 
@@ -180,7 +180,7 @@ router.delete("/api/events/:id", auth, async (req, res) => {
 });
 
 // GET MY EVENTS
-router.get("/api/myevents", auth, async (req, res) => {
+router.get("/myevents", auth, async (req, res) => {
   try {
     const userId = req.user.id;
 

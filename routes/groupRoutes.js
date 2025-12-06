@@ -8,7 +8,7 @@ const crypto = require("crypto");
 // ===========================
 // GET ALL GROUPS (owner or member)
 // ===========================
-router.get("/api/groups", auth, async (req, res) => {
+router.get("/groups", auth, async (req, res) => {
   try {
     const groups = await Group.find({
       $or: [
@@ -28,7 +28,7 @@ router.get("/api/groups", auth, async (req, res) => {
 // ===========================
 // CREATE GROUP
 // ===========================
-router.post("/api/groups", auth, async (req, res) => {
+router.post("/groups", auth, async (req, res) => {
   try {
     const { name, description } = req.body;
 
@@ -49,7 +49,7 @@ router.post("/api/groups", auth, async (req, res) => {
 // ===========================
 // GET SINGLE GROUP (owner or member)
 // ===========================
-router.get("/api/groups/:id", auth, async (req, res) => {
+router.get("/groups/:id", auth, async (req, res) => {
   try {
     const group = await Group.findById(req.params.id)
       .populate("owner", "name email")
@@ -72,7 +72,7 @@ router.get("/api/groups/:id", auth, async (req, res) => {
 // ===========================
 // UPDATE GROUP (owner only)
 // ===========================
-router.patch("/api/groups/:id", auth, async (req, res) => {
+router.patch("/groups/:id", auth, async (req, res) => {
   try {
     const group = await Group.findOne({ _id: req.params.id, owner: req.user.id });
     if (!group) return res.status(403).json({ message: "Not authorized" });
@@ -91,7 +91,7 @@ router.patch("/api/groups/:id", auth, async (req, res) => {
 // ===========================
 // DELETE GROUP (owner only)
 // ===========================
-router.delete("/api/groups/:id", auth, async (req, res) => {
+router.delete("/groups/:id", auth, async (req, res) => {
   try {
     const group = await Group.findOneAndDelete({
       _id: req.params.id,
@@ -108,9 +108,9 @@ router.delete("/api/groups/:id", auth, async (req, res) => {
 
 // ===========================
 // 🔥 SEND INVITE (owner only)
-// POST /api/groups/:id/invite
+// POST /groups/:id/invite
 // ===========================
-router.post("/api/groups/:id/invite", auth, async (req, res) => {
+router.post("/groups/:id/invite", auth, async (req, res) => {
   try {
     const group = await Group.findOne({ _id: req.params.id, owner: req.user.id });
 
@@ -137,9 +137,9 @@ router.post("/api/groups/:id/invite", auth, async (req, res) => {
 
 // ===========================
 // 🔥 JOIN GROUP USING INVITE CODE
-// POST /api/groups/:id/join 
+// POST /groups/:id/join 
 // ===========================
-router.post("/api/groups/:id/join", auth, async (req, res) => {
+router.post("/groups/:id/join", auth, async (req, res) => {
   try {
     const { inviteCode } = req.body;
 
@@ -169,7 +169,7 @@ router.post("/api/groups/:id/join", auth, async (req, res) => {
 // ===========================
 // ADD MEMBER (owner only)
 // ===========================
-router.post("/api/groups/:id/members", auth, async (req, res) => {
+router.post("/groups/:id/members", auth, async (req, res) => {
   try {
     const { userId } = req.body;
 
@@ -191,7 +191,7 @@ router.post("/api/groups/:id/members", auth, async (req, res) => {
 // ===========================
 // REMOVE MEMBER (owner only)
 // ===========================
-router.delete("/api/groups/:id/members/:memberId", auth, async (req, res) => {
+router.delete("/groups/:id/members/:memberId", auth, async (req, res) => {
   try {
     const group = await Group.findOne({ _id: req.params.id, owner: req.user.id });
 
@@ -212,7 +212,7 @@ router.delete("/api/groups/:id/members/:memberId", auth, async (req, res) => {
 // ===========================
 // LIST MEMBERS (member or owner)
 // ===========================
-router.get("/api/groups/:id/members", auth, async (req, res) => {
+router.get("/groups/:id/members", auth, async (req, res) => {
   try {
     const group = await Group.findById(req.params.id)
       .populate("members.user", "name email");

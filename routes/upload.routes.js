@@ -15,7 +15,7 @@ const storage = multer.diskStorage({
   },
   filename: (req, file, cb) => {
     const ext = path.extname(file.originalname);
-    const name = `${Date.now()}-${Math.random().toString(36).slice(2,9)}${ext}`;
+    const name = `${Date.now()}-${Math.random().toString(36).slice(2, 9)}${ext}`;
     cb(null, name);
   },
 });
@@ -29,7 +29,7 @@ const upload = multer({
   },
 });
 
-router.post("/api/uploads", auth, upload.single("file"), async (req, res) => {
+router.post("/uploads", auth, upload.single("file"), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ message: "No file" });
 

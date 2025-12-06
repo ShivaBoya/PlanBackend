@@ -45,6 +45,15 @@ const userSchema = new mongoose.Schema(
       movieGenres: [String],
       moodTags: [String],
     },
+
+    resetOtp: {
+      type: String,
+      select: false,
+    },
+    resetOtpExpire: {
+      type: Date,
+      select: false,
+    },
   },
   { timestamps: true }
 );
