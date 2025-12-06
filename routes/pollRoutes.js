@@ -15,7 +15,7 @@ const isMember = (group, userId) =>
 // CREATE POLL
 // POST /api/events/:eventId/polls
 // ===========================
-router.post("/api/events/:eventId/polls", auth, async (req, res) => {
+router.post("/events/:eventId/polls", auth, async (req, res) => {
   try {
     const event = await Event.findById(req.params.eventId).populate("group");
     if (!event) return res.status(404).json({ message: "Event not found" });
@@ -53,7 +53,7 @@ router.post("/api/events/:eventId/polls", auth, async (req, res) => {
 // GET POLL DETAILS
 // GET /api/polls/:id
 // ===========================
-router.get("/api/polls/:id", auth, async (req, res) => {
+router.get("/polls/:id", auth, async (req, res) => {
   try {
     const poll = await Poll.findById(req.params.id).populate({
       path: "event",
@@ -77,7 +77,7 @@ router.get("/api/polls/:id", auth, async (req, res) => {
 // POST /api/polls/:id/vote
 // body: { optionId }
 // ===========================
-router.post("/api/polls/:id/vote", auth, async (req, res) => {
+router.post("/polls/:id/vote", auth, async (req, res) => {
   try {
     const { optionId } = req.body;
     if (!optionId) return res.status(400).json({ message: "optionId required" });
@@ -124,7 +124,7 @@ router.post("/api/polls/:id/vote", auth, async (req, res) => {
 // REMOVE VOTE
 // DELETE /api/polls/:id/vote
 // ===========================
-router.delete("/api/polls/:id/vote", auth, async (req, res) => {
+router.delete("/polls/:id/vote", auth, async (req, res) => {
   try {
     const poll = await Poll.findById(req.params.id).populate({
       path: "event",
@@ -153,7 +153,7 @@ router.delete("/api/polls/:id/vote", auth, async (req, res) => {
 // LIST POLLS FOR EVENT
 // GET /api/events/:eventId/polls
 // ===========================
-router.get("/api/events/:eventId/polls", auth, async (req, res) => {
+router.get("/events/:eventId/polls", auth, async (req, res) => {
   try {
     const event = await Event.findById(req.params.eventId).populate("group");
     if (!event) return res.status(404).json({ message: "Event not found" });

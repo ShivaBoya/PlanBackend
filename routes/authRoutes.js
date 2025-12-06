@@ -1,131 +1,220 @@
 const express = require("express");
-const jwt = require("jsonwebtoken");
-const bcrypt = require("bcryptjs");
-const User = require("../models/User");
-const auth = require("../middleware/authMiddleware");
 const router = express.Router();
+const jwt = require("jsonwebtoken");
+const User = require("../models/User");
+const nodemailer = require("nodemailer");
+const auth = require("../middleware/authMiddleware");
 
-// Generate JWT tokens
-const generateToken = (userId) => {
-  const accessToken = jwt.sign({ id: userId }, process.env.JWT_SECRET, {
-    expiresIn: "15m",
-  });
+// @desc    Get current user (Auto-Login)
+// @route   GET /me
+router.get("/me", auth, async (req, res) => {
+  try {
+    const user = await User.findById(req.user.id).select("-password");
+    if (!user) return res.status(404).json({ message: "User not found" });
+    res.json({ user });
+  } catch (err) {
+    res.status(500).json({ message: "Server Error" });
+  }
+});
 
-  const refreshToken = jwt.sign({ id: userId }, process.env.JWT_SECRET, {
-    expiresIn: "7d",
-  });
-
-  return { accessToken, refreshToken };
+// Generate JWT
+const generateToken = (id) => {
+  return jwt.sign({ id }, process.env.JWT_SECRET, { expiresIn: "30d" });
 };
 
-// REGISTER
+// Mail Transporter
+const transporter = nodemailer.createTransport({
+  service: "gmail",
+  auth: {
+    user: process.env.MAIL_USER,
+    pass: process.env.MAIL_PASS,
+  },
+});
+
+// @desc    Register new user
+// @route   POST /register
 router.post("/register", async (req, res) => {
   try {
     const { name, email, password } = req.body;
 
-    if (!name || !email || !password)
-      return res.status(400).json({ message: "All fields required" });
+    if (!name || !email || !password) {
+      return res.status(400).json({ message: "Please include all fields" });
+    }
 
-    const existing = await User.findOne({ email });
-    if (existing)
+    const userExists = await User.findOne({ email });
+    if (userExists) {
       return res.status(400).json({ message: "User already exists" });
+    }
 
-    const user = await User.create({ name, email, password });
-
-    res.status(201).json({
-      message: "User registered successfully",
-      user,
+    const user = await User.create({
+      name,
+      email,
+      password,
     });
+
+    if (user) {
+      // Set Cookie
+      const token = generateToken(user._id);
+      res.cookie("jwt", token, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "lax",
+        maxAge: 30 * 24 * 60 * 60 * 1000,
+      });
+
+      res.status(201).json({
+        user: {
+          _id: user._id,
+          name: user.name,
+          email: user.email,
+        },
+        token,
+      });
+    } else {
+      res.status(400).json({ message: "Invalid user data" });
+    }
   } catch (error) {
-    res.status(500).json({ message: "Server error", error: error.message });
+    console.error(error);
+    res.status(500).json({ message: "Server Error" });
   }
 });
 
-// LOGIN
+// @desc    Login user
+// @route   POST /login
 router.post("/login", async (req, res) => {
   try {
     const { email, password } = req.body;
 
+    // Check user email
     const user = await User.findOne({ email }).select("+password");
 
-    if (!user || !(await user.matchPassword(password))) {
-      return res.status(400).json({ message: "Invalid credentials" });
+    if (user && (await user.matchPassword(password))) {
+      const token = generateToken(user._id);
+
+      res.cookie("jwt", token, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "lax", // Better for local dev than strict
+        maxAge: 30 * 24 * 60 * 60 * 1000,
+      });
+
+      res.json({
+        user: {
+          _id: user._id,
+          name: user.name,
+          email: user.email,
+        },
+        token,
+      });
+    } else {
+      res.status(401).json({ message: "Invalid credentials" });
     }
-
-    const { accessToken, refreshToken } = generateToken(user._id);
-
-    res.cookie("accessToken", accessToken, {
-      httpOnly: true,
-      secure: true,
-      sameSite: "None",
-      maxAge: 15 * 60 * 1000,
-    });
-
-    res.cookie("refreshToken", refreshToken, {
-      httpOnly: true,
-      secure: true,
-      sameSite: "None",
-      maxAge: 7 * 24 * 60 * 60 * 1000,
-    });
-
-    res.json({ message: "Login successful", user });
   } catch (error) {
-    res.status(500).json({ message: "Server error", error: error.message });
+    console.error(error);
+    res.status(500).json({ message: "Server Error" });
   }
 });
 
-// REFRESH TOKEN
-router.post("/refresh", async (req, res) => {
-  try {
-    const refreshToken = req.cookies.refreshToken;
-    if (!refreshToken)
-      return res.status(401).json({ message: "No refresh token" });
-
-    const decoded = jwt.verify(refreshToken, process.env.JWT_SECRET);
-
-    const newAccessToken = jwt.sign(
-      { id: decoded.id },
-      process.env.JWT_SECRET,
-      { expiresIn: "15m" }
-    );
-
-    res.cookie("accessToken", newAccessToken, {
-      httpOnly: true,
-      secure: true,
-      sameSite: "None",
-      maxAge: 15 * 60 * 1000,
-    });
-
-    res.json({ message: "Access token refreshed" });
-  } catch (error) {
-    res.status(403).json({ message: "Invalid refresh token" });
-  }
+// @desc    Logout user
+// @route   POST /logout
+router.post("/logout", (req, res) => {
+  res.cookie("jwt", "", {
+    httpOnly: true,
+    expires: new Date(0),
+  });
+  res.status(200).json({ message: "Logged out" });
 });
 
-// LOGOUT
-router.post("/logout", auth, async (req, res) => {
+// --------------------------------------------------------------------------
+// FORGOT PASSWORD FLOW
+// --------------------------------------------------------------------------
+
+// @desc    Send Reset OTP
+// @route   POST /forgot-password
+router.post("/forgot-password", async (req, res) => {
+  const { email } = req.body;
   try {
-    res.clearCookie("accessToken", { sameSite: "None", secure: true });
-    res.clearCookie("refreshToken", { sameSite: "None", secure: true });
-
-    res.json({ message: "Logged out successfully" });
-  } catch (error) {
-    res.status(500).json({ message: "Server error", error: error.message });
-  }
-});
-
-// GET CURRENT USER
-router.get("/api/me", auth, async (req, res) => {
-  try {
-    const user = await User.findById(req.user.id).select("-password");
-
+    const user = await User.findOne({ email });
     if (!user) {
       return res.status(404).json({ message: "User not found" });
     }
 
-    res.json({ user }); 
-  } catch (error) {
-    res.status(500).json({ message: "Server error", error: error.message });
+    // Generate 6 digit OTP
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+
+    // Save to DB (expires in 10 mins)
+    user.resetOtp = otp;
+    user.resetOtpExpire = Date.now() + 10 * 60 * 1000;
+    await user.save();
+
+    // Send Mail
+    const mailOptions = {
+      from: process.env.MAIL_USER,
+      to: email,
+      subject: "PlanMyOutings Password Reset OTP",
+      text: `Your OTP for password reset is: ${otp}\n\nIt expires in 10 minutes.`,
+    };
+
+    transporter.sendMail(mailOptions, (err, info) => {
+      if (err) {
+        console.error("Mail Error:", err);
+        return res.status(500).json({ message: "Failed to send email" });
+      }
+      console.log("OTP Sent:", otp); // For Dev Debugging
+      res.json({ message: "OTP sent to email" });
+    });
+
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Server Error" });
+  }
+});
+
+// @desc    Verify OTP
+// @route   POST /verify-otp
+router.post("/verify-otp", async (req, res) => {
+  const { email, otp } = req.body;
+  try {
+    const user = await User.findOne({
+      email,
+      resetOtp: otp,
+      resetOtpExpire: { $gt: Date.now() }
+    }).select("+resetOtp +resetOtpExpire");
+
+    if (!user) {
+      return res.status(400).json({ message: "Invalid or expired OTP" });
+    }
+
+    res.json({ message: "OTP Verified" });
+  } catch (err) {
+    res.status(500).json({ message: "Server Error" });
+  }
+});
+
+// @desc   Reset Password
+// @route  POST /reset-password
+router.post("/reset-password", async (req, res) => {
+  const { email, otp, newPassword } = req.body;
+  try {
+    const user = await User.findOne({
+      email,
+      resetOtp: otp,
+      resetOtpExpire: { $gt: Date.now() }
+    }).select("+resetOtp +resetOtpExpire");
+
+    if (!user) {
+      return res.status(400).json({ message: "Invalid or expired OTP" });
+    }
+
+    // Set new password (pre-save hook will hash it)
+    user.password = newPassword;
+    user.resetOtp = undefined;
+    user.resetOtpExpire = undefined;
+    await user.save();
+
+    res.json({ message: "Password reset successful" });
+  } catch (err) {
+    res.status(500).json({ message: "Server Error" });
   }
 });
 

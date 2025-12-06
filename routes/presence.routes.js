@@ -5,7 +5,7 @@ const auth = require("../middleware/authMiddleware");
 const Event = require("../models/Event");
 const User = require("../models/User");
 
-router.get("/api/events/:eventId/members", auth, async (req, res) => {
+router.get("/events/:eventId/members", auth, async (req, res) => {
   try {
     const event = await Event.findById(req.params.eventId).populate("group");
     if (!event) return res.status(404).json({ message: "Event not found" });

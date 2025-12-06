@@ -13,7 +13,7 @@ const isMember = (group, userId) =>
 // ===========================
 // SET RSVP
 // ===========================
-router.post("/api/events/:eventId/rsvp", auth, async (req, res) => {
+router.post("/events/:eventId/rsvp", auth, async (req, res) => {
   try {
     const event = await Event.findById(req.params.eventId).populate("group");
     if (!event) return res.status(404).json({ message: "Event not found" });
@@ -49,7 +49,7 @@ router.post("/api/events/:eventId/rsvp", auth, async (req, res) => {
 // ===========================
 // LIST RSVPs
 // ===========================
-router.get("/api/events/:eventId/rsvps", auth, async (req, res) => {
+router.get("/events/:eventId/rsvps", auth, async (req, res) => {
   try {
     const event = await Event.findById(req.params.eventId).populate("group");
     if (!event) return res.status(404).json({ message: "Event not found" });
@@ -69,7 +69,7 @@ router.get("/api/events/:eventId/rsvps", auth, async (req, res) => {
 // ===========================
 // UPDATE RSVP
 // ===========================
-router.put("/api/events/:eventId/rsvp", auth, async (req, res) => {
+router.put("/events/:eventId/rsvp", auth, async (req, res) => {
   try {
     const { answer, guests, note } = req.body;
 

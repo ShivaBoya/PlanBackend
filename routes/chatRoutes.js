@@ -9,7 +9,7 @@ const router = express.Router();
 /* ======================================================
    CREATE OR GET CHAT BETWEEN TWO USERS
 ====================================================== */
-router.post("/api/chat/start", auth, async (req, res) => {
+router.post("/chat/start", auth, async (req, res) => {
   try {
     const { userId } = req.body; // FIXED: frontend sends userId
 
@@ -36,7 +36,7 @@ router.post("/api/chat/start", auth, async (req, res) => {
 /* ======================================================
    GET ALL USER CHATS (Messenger / WhatsApp)
 ====================================================== */
-router.get("/api/chat/list", auth, async (req, res) => {
+router.get("/chat/list", auth, async (req, res) => {
   try {
     const chats = await Chat.find({ users: req.user.id })
       .populate("users", "name email avatar")
@@ -52,7 +52,7 @@ router.get("/api/chat/list", auth, async (req, res) => {
 /* ======================================================
    GET CHAT MESSAGES
 ====================================================== */
-router.get("/api/chat/:chatId/messages", auth, async (req, res) => {
+router.get("/chat/:chatId/messages", auth, async (req, res) => {
   try {
     const messages = await DirectMessage.find({
       chatId: req.params.chatId
@@ -69,7 +69,7 @@ router.get("/api/chat/:chatId/messages", auth, async (req, res) => {
 /* ======================================================
    SEND MESSAGE
 ====================================================== */
-router.post("/api/chat/:chatId/message", auth, async (req, res) => {
+router.post("/chat/:chatId/message", auth, async (req, res) => {
   try {
     const msg = await DirectMessage.create({
       chatId: req.params.chatId,
@@ -98,7 +98,7 @@ router.post("/api/chat/:chatId/message", auth, async (req, res) => {
 /* ======================================================
    GET ALL CONTACTS (WhatsApp Style)
 ====================================================== */
-router.get("/api/chat/contacts", auth, async (req, res) => {
+router.get("/chat/contacts", auth, async (req, res) => {
   try {
     const users = await User.find({ _id: { $ne: req.user.id } })
       .select("name email avatar");

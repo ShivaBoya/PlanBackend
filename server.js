@@ -38,6 +38,7 @@ const server = http.createServer(app);
 // =======================================
 const allowedOrigins = [
   "http://localhost:5173",
+  "http://127.0.0.1:5173",
   process.env.CLIENT_URL,
 ].filter(Boolean);
 
@@ -98,18 +99,18 @@ function safeUseRoute(route) {
 // =======================================
 // ROUTES
 // =======================================
-app.use("/", safeUseRoute(authRoutes));
-app.use("/", safeUseRoute(userRoutes));
-app.use("/", safeUseRoute(groupRoutes));
-app.use("/", safeUseRoute(eventRoutes));
-app.use("/", safeUseRoute(pollRoutes));
-app.use("/", safeUseRoute(rsvpRoutes));
-app.use("/", safeUseRoute(suggestionRoutes));
-app.use("/", safeUseRoute(botRoutes));
-app.use("/", safeUseRoute(messageRoutes));
-app.use("/", safeUseRoute(uploadRoutes));
-app.use("/", safeUseRoute(presenceRoutes));
-app.use("/", safeUseRoute(chatRoutes)); // NEW: chatRoutes mounted
+app.use("/api", safeUseRoute(authRoutes));
+app.use("/api", safeUseRoute(userRoutes));
+app.use("/api", safeUseRoute(groupRoutes));
+app.use("/api", safeUseRoute(eventRoutes));
+app.use("/api", safeUseRoute(pollRoutes));
+app.use("/api", safeUseRoute(rsvpRoutes));
+app.use("/api", safeUseRoute(suggestionRoutes));
+app.use("/api", safeUseRoute(botRoutes));
+app.use("/api", safeUseRoute(messageRoutes));
+app.use("/api", safeUseRoute(uploadRoutes));
+app.use("/api", safeUseRoute(presenceRoutes));
+app.use("/api", safeUseRoute(chatRoutes)); // NEW: chatRoutes mounted
 
 // =======================================
 // HEALTH CHECK
@@ -318,5 +319,8 @@ io.on("connection", (socket) => {
 // =======================================
 // START SERVER
 // =======================================
-const PORT = process.env.PORT || 5000;
-server.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
+// Use port 7777 to match frontend configuration
+const PORT = 7777;
+server.listen(PORT, () => {
+  console.log(`🚀 Server running on port ${PORT}`);
+});

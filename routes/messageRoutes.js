@@ -15,7 +15,7 @@ const isMember = (group, userId) =>
 // GET MESSAGES BY EVENT
 // GET /api/events/:eventId/messages
 // --------------------------------------------
-router.get("/api/events/:eventId/messages", auth, async (req, res) => {
+router.get("/events/:eventId/messages", auth, async (req, res) => {
   try {
     const event = await Event.findById(req.params.eventId).populate("group");
     if (!event) return res.status(404).json({ message: "Event not found" });
@@ -39,7 +39,7 @@ router.get("/api/events/:eventId/messages", auth, async (req, res) => {
 // POST /api/events/:eventId/messages
 // body: { text }
 // --------------------------------------------
-router.post("/api/events/:eventId/messages", auth, async (req, res) => {
+router.post("/events/:eventId/messages", auth, async (req, res) => {
   try {
     const { text } = req.body;
     if (!text || !text.trim()) return res.status(400).json({ message: "text required" });
